@@ -1,0 +1,226 @@
+{n!logon
+Copyright (C) 2005 Micha³ Zubkowicz
+
+
+
+Niniejszy program jest wolnym oprogramowaniem; mo¿esz go 
+rozprowadzaæ dalej i/lub modyfikowaæ na warunkach Powszechnej
+Licencji Publicznej GNU, wydanej przez Fundacjê Wolnego
+Oprogramowania - wed³ug wersji 2-giej tej Licencji lub którejœ
+z póŸniejszych wersji. 
+
+Niniejszy program rozpowszechniany jest z nadziej¹, i¿ bêdzie on 
+u¿yteczny - jednak BEZ JAKIEJKOLWIEK GWARANCJI, nawet domyœlnej 
+gwarancji PRZYDATNOŒCI HANDLOWEJ albo PRZYDATNOŒCI DO OKREŒLONYCH 
+ZASTOSOWAÑ. W celu uzyskania bli¿szych informacji - Powszechna 
+Licencja Publiczna GNU. 
+
+Z pewnoœci¹ wraz z niniejszym programem otrzyma³eœ te¿ egzemplarz 
+Powszechnej Licencji Publicznej GNU (GNU General Public License);
+jeœli nie - napisz do Free Software Foundation, Inc., 675 Mass Ave,
+Cambridge, MA 02139, USA.}
+
+unit nlogon;
+
+interface
+
+uses
+  Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+  Dialogs, StdCtrls, XMLINI, jpeg, ExtCtrls,ShellAPI;
+
+type
+  Tlogon = class(TForm)
+    Ok: TButton;
+    Cancel: TButton;
+    username_edit: TEdit;
+    password_edit: TEdit;
+    Label1: TLabel;
+    Label2: TLabel;
+    Label3: TLabel;
+    Label5: TLabel;
+    Image1: TImage;
+    procedure LoadConfig(Sender: TObject);
+    procedure OkClick(Sender: TObject);
+    procedure CancelClick(Sender: TObject);
+    procedure SaveFile(username:String);
+    procedure FileCopy(const FSrc, FDst: string);
+    procedure Err(tresc:String);
+    procedure BeforeExit(Sender: TObject);
+    function SysErrorMessage(ErrorCode: Integer): string;
+    function RunScript(server_name, username:String):Boolean;
+    function Connect(server_name, username, password:String): Boolean;
+
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+
+    server_name:String;
+    last_user:String;
+    use_windows_user:Boolean;
+  end;
+
+var
+  logon: Tlogon;
+
+implementation
+
+{$R *.dfm}
+
+procedure Tlogon.OkClick(Sender: TObject);
+begin
+if Connect(server_name,username_edit.Text,password_edit.Text)
+then if RunScript(server_name,username_edit.Text) then
+begin
+Application.Terminate;
+end;
+end;
+
+procedure Tlogon.CancelClick(Sender: TObject);
+begin
+Application.Terminate;
+end;
+
+procedure Tlogon.LoadConfig(Sender: TObject);
+var XML: TXMLINI;
+i: Cardinal;
+sUser: String;
+begin
+if (FileExists('c:\config.xml')) then
+begin
+XML:= TXMLINI.Create('c:\config.xml');
+last_user:=XML.ReadString('configuration','last_user','');
+server_name:= XML.ReadString('configuration','server_name','');
+
+if XML.ReadString('configuration','use_windows_user','')='1' then
+begin
+use_windows_user:= True;
+i:=255;
+SetLength(sUser,i);
+GetUserName(Pchar(sUser),i);
+SetLength(sUser,(i));
+username_edit.Text:=sUser;
+last_user:=sUser;
+OkClick(logon);
+end
+
+else use_windows_user:= False;
+XML.Free;
+end
+
+else //file check
+  begin
+  SaveFile('');
+  Err('Nie odnaleziono pliku z konfiguracj¹ programu. Zosta³ utworzony nowy plik: c:\config.xml. WprowadŸ w nim dane potrzebne do prawid³owej pracy programu i uruchom program ponownie');  Application.Terminate;
+  end;
+   username_edit.Text:=last_user;
+ end;
+
+procedure Tlogon.SaveFile(username:String);
+var XML: TXMLINI;
+begin
+XML := TXMLINI.Create('c:\config.xml');
+XML.WriteString('configuration','last_user',username);
+if XML.ValueExist('configuration','server_name')=False then
+XML.WriteString('configuration','server_name','\\kbr1');
+if XML.ValueExist('configuration','use_windows_user')=False then
+XML.WriteString('configuration','use_windows_user','0');
+XML.Free
+end;
+
+
+function Tlogon.Connect(server_name, username, password:String):Boolean;
+var Res:TNetResource;
+err_number: Integer;
+begin
+ with Res do
+ begin
+
+  dwType:=RESOURCETYPE_DISK;
+  lpLocalName:=Nil;
+  lpRemoteName:=PChar(server_name);
+  lpProvider:=Nil;
+ end;
+logon.Caption:='Trwa ³¹czenie...';
+
+if use_windows_user=True then
+err_number:=WNetAddConnection2(Res,Nil,Nil,CONNECT_UPDATE_PROFILE)
+else
+err_number:=WNetAddConnection2(Res,PChar(password),PChar(username),CONNECT_UPDATE_PROFILE);
+
+if err_number = NO_ERROR then
+Connect:=True
+else
+begin
+logon.Caption:='Logowanie do systemu';
+Err(SysErrorMessage(err_number));
+Connect:=False;
+end;
+
+end;
+
+
+function Tlogon.RunScript(server_name, username:String):Boolean;
+var a: PAnsiChar;
+Buf: array[Byte] of Char;
+begin
+ShellExecute(HANDLE,'open','net.exe','use /delete * /y','C:\WINDOWS\system32',sw_normal);
+a:='c:\';
+if (GetEnvironmentVariable('TEMP', Buf, 255) > 0)
+then
+a:= Buf;
+if (FileExists(server_name+'\netlogon\'+username+'.bat')=True) then
+begin
+    FileCopy(server_name+'\netlogon\'+username+'.bat',a+'\netlogon.bat');
+    ShellExecute(HANDLE,'open',PCHAR('netlogon'),'',PChar(a+'\'),sw_normal);
+    RunScript:= True;
+end else
+begin
+    RunScript:= False;
+    Err('Nie odnaleziono skryptu logowania');
+end;
+end;
+
+
+
+procedure Tlogon.FileCopy(const FSrc, FDst: string);
+var
+  sStream,
+  dStream: TFileStream;
+begin
+  sStream := TFileStream.Create(FSrc, fmOpenRead);
+  try
+    dStream := TFileStream.Create(FDst, fmCreate);
+    try
+      dStream.CopyFrom(sStream, 0);
+    finally
+      dStream.Free;
+    end;
+  finally
+    sStream.Free;
+  end;
+end;
+
+procedure Tlogon.Err(tresc:String);
+begin
+MessageBox(HANDLE,PAnsiChar(tresc),'B³¹d',MB_ICONERROR);
+end;
+
+function Tlogon.SysErrorMessage(ErrorCode: Integer): string;
+var
+  Len: Integer;
+  Buffer: array[0..255] of Char;
+begin
+  Len := FormatMessage(FORMAT_MESSAGE_FROM_SYSTEM or
+    FORMAT_MESSAGE_ARGUMENT_ARRAY, nil, ErrorCode, 0, Buffer,
+    SizeOf(Buffer), nil);
+  while (Len > 0) and (Buffer[Len - 1] in [#0..#32, '.']) do Dec(Len);
+  SetString(Result, Buffer, Len);
+end;
+
+procedure Tlogon.BeforeExit(Sender: TObject);
+begin
+SaveFile(username_edit.Text);
+end;
+
+end.

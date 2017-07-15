@@ -1,0 +1,14 @@
+program nlogon_proj;
+
+uses
+  Forms,
+  nlogon in 'nlogon.pas' {logowanie};
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.Title := 'Logowanie';
+  Application.CreateForm(Tlogowanie, logowanie);
+  Application.Run;
+end.
